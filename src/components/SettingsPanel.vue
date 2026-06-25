@@ -11,7 +11,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-const toMinutes = (secs: number) => Math.round(secs / 60)
+const toMinutes = (secs: number) => Math.floor(secs / 60)
 const toSecs = (mins: number) => mins * 60
 
 const local = ref({
@@ -30,7 +30,7 @@ watch(() => props.settings, (val) => {
     sessions_before_long: val.sessions_before_long,
     sound_enabled: val.sound_enabled,
   }
-}, { deep: true })
+})
 
 const handleSave = () => {
   emit('save', {
@@ -154,7 +154,7 @@ const handleSave = () => {
 }
 
 .settings-panel {
-  background: #2A3A2C;
+  background: var(--bg-secondary);
   border-radius: 20px;
   padding: 0;
   width: 380px;
@@ -185,17 +185,17 @@ const handleSave = () => {
 }
 
 .panel-header h2 {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 600;
-  color: #F8F4EC;
+  color: var(--text-primary);
   margin: 0;
 }
 
 .close-btn {
   background: none;
   border: none;
-  color: rgba(248, 244, 236, 0.4);
+  color: var(--text-tertiary);
   cursor: pointer;
   padding: 8px;
   border-radius: 8px;
@@ -203,8 +203,8 @@ const handleSave = () => {
 }
 
 .close-btn:hover {
-  color: rgba(248, 244, 236, 0.8);
-  background: rgba(248, 244, 236, 0.06);
+  color: var(--text-secondary);
+  background: var(--surface);
 }
 
 .settings-content {
@@ -231,7 +231,7 @@ const handleSave = () => {
   display: block;
   font-size: 13px;
   font-weight: 500;
-  color: rgba(248, 244, 236, 0.6);
+  color: var(--text-muted);
   margin-bottom: 8px;
 }
 
@@ -247,8 +247,8 @@ const handleSave = () => {
   border: 1px solid rgba(248, 244, 236, 0.1);
   border-radius: 12px;
   background: rgba(248, 244, 236, 0.04);
-  color: #F8F4EC;
-  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
   font-size: 15px;
   font-weight: 400;
   box-sizing: border-box;
@@ -257,7 +257,7 @@ const handleSave = () => {
 
 .input-wrapper input:focus {
   outline: none;
-  border-color: #E74C3C;
+  border-color: var(--accent-red);
   background: rgba(231, 76, 60, 0.04);
   box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1);
 }
@@ -266,7 +266,7 @@ const handleSave = () => {
   position: absolute;
   right: 16px;
   font-size: 13px;
-  color: rgba(248, 244, 236, 0.4);
+  color: var(--text-tertiary);
 }
 
 .toggle-item {
@@ -291,7 +291,7 @@ const handleSave = () => {
 }
 
 .toggle.active {
-  background: #E74C3C;
+  background: var(--accent-red);
 }
 
 .toggle-thumb {
@@ -322,7 +322,7 @@ const handleSave = () => {
   padding: 12px 24px;
   border: none;
   border-radius: 12px;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-body);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -330,7 +330,7 @@ const handleSave = () => {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #E74C3C 0%, #C0392B 100%);
+  background: linear-gradient(135deg, var(--accent-red) 0%, var(--accent-red-dark) 100%);
   color: white;
   box-shadow: 0 2px 8px rgba(231, 76, 60, 0.3);
 }
@@ -341,12 +341,12 @@ const handleSave = () => {
 }
 
 .btn-secondary {
-  background: rgba(248, 244, 236, 0.06);
-  color: rgba(248, 244, 236, 0.7);
+  background: var(--surface);
+  color: var(--text-secondary);
 }
 
 .btn-secondary:hover {
-  background: rgba(248, 244, 236, 0.1);
-  color: rgba(248, 244, 236, 0.9);
+  background: var(--surface-active);
+  color: var(--text-primary);
 }
 </style>

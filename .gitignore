@@ -26,3 +26,6 @@ src-tauri/Cargo.lock
 *.njsproj
 *.sln
 *.sw?
+reasonix.toml
+.reasonix/
+.codegraph/

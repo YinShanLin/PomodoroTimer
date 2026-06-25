@@ -78,7 +78,7 @@ const emit = defineEmits<{
   align-items: center;
   gap: 8px;
   border: none;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-body);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -86,7 +86,7 @@ const emit = defineEmits<{
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #E74C3C 0%, #C0392B 100%);
+  background: linear-gradient(135deg, var(--accent-red) 0%, var(--accent-red-dark) 100%);
   color: white;
   padding: 12px 28px;
   border-radius: 32px;
@@ -95,7 +95,7 @@ const emit = defineEmits<{
 }
 
 .btn-break {
-  background: linear-gradient(135deg, #27AE60 0%, #1E8449 100%);
+  background: linear-gradient(135deg, var(--accent-green) 0%, var(--accent-green-dark) 100%);
   box-shadow: 0 4px 16px rgba(39, 174, 96, 0.3);
 }
 
@@ -114,18 +114,18 @@ const emit = defineEmits<{
 }
 
 .btn-ghost {
-  background: rgba(248, 244, 236, 0.06);
-  color: rgba(248, 244, 236, 0.7);
+  background: var(--surface);
+  color: var(--text-secondary);
   padding: 14px;
   border-radius: 50%;
 }
 
 .btn-ghost:hover {
-  background: rgba(248, 244, 236, 0.1);
-  color: rgba(248, 244, 236, 1);
+  background: var(--surface-active);
+  color: var(--text-primary);
 }
 
 .btn-ghost:active {
-  background: rgba(248, 244, 236, 0.08);
+  background: var(--surface-hover);
 }
 </style>

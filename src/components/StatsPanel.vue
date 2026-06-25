@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useTimer } from '../composables/useTimer'
 import type { PomodoroRecord } from '../composables/useTimer'
 
@@ -12,17 +12,25 @@ const loadRecords = async () => {
   records.value = await getRecords()
 }
 
-const filteredRecords = () => {
-  const completed = records.value.filter(r => r.completed && r.state === 'Work')
+const totalCompleted = computed(() =>
+  records.value.filter(r => r.completed && r.state === 'Work').length
+)
+
+const filteredRecords = computed(() => {
+  const completed = totalCompleted.value // reuse caching
+    ? records.value.filter(r => r.completed && r.state === 'Work')
+    : []
   if (viewMode.value === 'today') {
     const today = new Date().toISOString().split('T')[0]
     return completed.filter(r => r.start_time.startsWith(today))
   }
   return completed
-}
+})
 
-const weeklyStats = () => {
-  const completed = records.value.filter(r => r.completed && r.state === 'Work')
+const weeklyStats = computed(() => {
+  const completed = totalCompleted.value
+    ? records.value.filter(r => r.completed && r.state === 'Work')
+    : []
   const weekAgo = new Date()
   weekAgo.setDate(weekAgo.getDate() - 7)
   const weekRecords = completed.filter(r => new Date(r.start_time) >= weekAgo)
@@ -46,7 +54,7 @@ const weeklyStats = () => {
     date: date.slice(5),
     count,
   }))
-}
+})
 
 const formatDuration = (secs: number) => {
   const hours = Math.floor(secs / 3600)
@@ -55,10 +63,10 @@ const formatDuration = (secs: number) => {
   return `${mins}m`
 }
 
-const getMaxCount = () => {
-  const stats = weeklyStats()
+const maxCount = computed(() => {
+  const stats = weeklyStats.value
   return Math.max(...stats.map(s => s.count), 1)
-}
+})
 
 onMounted(() => {
   loadRecords()
@@ -101,7 +109,7 @@ onMounted(() => {
       </div>
       <div class="stat-card">
         <div class="stat-icon">🏆</div>
-        <div class="stat-value">{{ records.filter(r => r.completed && r.state === 'Work').length }}</div>
+        <div class="stat-value">{{ totalCompleted }}</div>
         <div class="stat-label">总计番茄</div>
       </div>
     </div>
@@ -112,14 +120,14 @@ onMounted(() => {
       </div>
       <div class="bar-chart">
         <div
-          v-for="day in weeklyStats()"
+          v-for="day in weeklyStats"
           :key="day.date"
           class="bar-item"
         >
           <div class="bar-container">
             <div
               class="bar"
-              :style="{ height: Math.max((day.count / getMaxCount()) * 80, 4) + 'px' }"
+              :style="{ height: Math.max((day.count / maxCount) * 80, 4) + 'px' }"
             >
               <span v-if="day.count > 0" class="bar-count">{{ day.count }}</span>
             </div>
@@ -132,11 +140,11 @@ onMounted(() => {
     <div class="history-section">
       <div class="section-header">
         <h3>历史记录</h3>
-        <span class="record-count">{{ filteredRecords().length }} 条</span>
+        <span class="record-count">{{ filteredRecords.length }} 条</span>
       </div>
       <div class="history-list">
         <div
-          v-for="(record, i) in filteredRecords().slice().reverse().slice(0, 15)"
+          v-for="(record, i) in filteredRecords.slice().reverse().slice(0, 15)"
           :key="i"
           class="history-item"
         >
@@ -146,7 +154,7 @@ onMounted(() => {
           </div>
           <div class="history-duration">{{ formatDuration(record.duration_secs) }}</div>
         </div>
-        <div v-if="filteredRecords().length === 0" class="empty-state">
+        <div v-if="filteredRecords.length === 0" class="empty-state">
           <div class="empty-icon">📝</div>
           <div class="empty-text">暂无记录</div>
           <div class="empty-hint">开始第一个番茄钟吧</div>
@@ -173,16 +181,16 @@ onMounted(() => {
 }
 
 .stats-header h2 {
-  font-family: 'Playfair Display', Georgia, serif;
+  font-family: var(--font-display);
   font-size: 24px;
   font-weight: 600;
-  color: #F8F4EC;
+  color: var(--text-primary);
 }
 
 .view-toggle {
   display: flex;
   gap: 4px;
-  background: rgba(248, 244, 236, 0.06);
+  background: var(--surface);
   padding: 4px;
   border-radius: 10px;
 }
@@ -193,19 +201,19 @@ onMounted(() => {
   padding: 8px 16px;
   font-size: 13px;
   font-weight: 500;
-  color: rgba(248, 244, 236, 0.5);
+  color: var(--text-muted);
   cursor: pointer;
   border-radius: 8px;
   transition: all 0.2s ease;
 }
 
 .toggle-btn:hover {
-  color: rgba(248, 244, 236, 0.8);
+  color: var(--text-secondary);
 }
 
 .toggle-btn.active {
-  background: #354A38;
-  color: #F8F4EC;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .stats-cards {
@@ -235,16 +243,16 @@ onMounted(() => {
 }
 
 .stat-value {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 28px;
   font-weight: 500;
-  color: #F39C12;
+  color: var(--accent-orange);
   margin-bottom: 4px;
 }
 
 .stat-label {
   font-size: 12px;
-  color: rgba(248, 244, 236, 0.5);
+  color: var(--text-muted);
 }
 
 .chart-section {
@@ -261,12 +269,12 @@ onMounted(() => {
 .section-header h3 {
   font-size: 14px;
   font-weight: 600;
-  color: rgba(248, 244, 236, 0.7);
+  color: var(--text-secondary);
 }
 
 .record-count {
   font-size: 12px;
-  color: rgba(248, 244, 236, 0.4);
+  color: var(--text-tertiary);
 }
 
 .bar-chart {
@@ -295,7 +303,7 @@ onMounted(() => {
 
 .bar {
   width: 28px;
-  background: linear-gradient(180deg, #E74C3C 0%, #C0392B 100%);
+  background: linear-gradient(180deg, var(--accent-red) 0%, var(--accent-red-dark) 100%);
   border-radius: 6px 6px 2px 2px;
   position: relative;
   transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -311,15 +319,15 @@ onMounted(() => {
   top: -22px;
   left: 50%;
   transform: translateX(-50%);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
-  color: rgba(248, 244, 236, 0.7);
+  color: var(--text-secondary);
 }
 
 .bar-label {
   font-size: 11px;
-  color: rgba(248, 244, 236, 0.4);
+  color: var(--text-tertiary);
   margin-top: 8px;
 }
 
@@ -361,19 +369,19 @@ onMounted(() => {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #E74C3C;
+  background: var(--accent-red);
 }
 
 .history-time {
   font-size: 13px;
-  color: rgba(248, 244, 236, 0.7);
+  color: var(--text-secondary);
 }
 
 .history-duration {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 500;
-  color: #F39C12;
+  color: var(--accent-orange);
 }
 
 .empty-state {
@@ -389,13 +397,13 @@ onMounted(() => {
 
 .empty-text {
   font-size: 14px;
-  color: rgba(248, 244, 236, 0.5);
+  color: var(--text-muted);
   margin-bottom: 4px;
 }
 
 .empty-hint {
   font-size: 12px;
-  color: rgba(248, 244, 236, 0.3);
+  color: var(--text-tertiary);
 }
 
 @media (max-height: 500px) {

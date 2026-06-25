@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
@@ -54,8 +54,7 @@ const todayStats = ref<TodayStats>({ count: 0, total_minutes: 0 })
 const showSettings = ref(false)
 const currentView = ref<'timer' | 'stats'>('timer')
 
-let unlistenStatus: (() => void) | null = null
-let unlistenAlert: (() => void) | null = null
+let initialized = false
 
 export function useTimer() {
   const formatTime = (secs: number): string => {
@@ -116,6 +115,9 @@ export function useTimer() {
   }
 
   onMounted(async () => {
+    if (initialized) return
+    initialized = true
+
     const initialStatus = await invoke<TimerStatus>('get_status')
     status.value = initialStatus
 
@@ -124,18 +126,13 @@ export function useTimer() {
 
     await refreshStats()
 
-    unlistenStatus = await listen<TimerStatus>('timer-status', (event) => {
+    listen<TimerStatus>('timer-status', (event) => {
       status.value = event.payload
     })
 
-    unlistenAlert = await listen('timer-alert', () => {
+    listen('timer-alert', () => {
       refreshStats()
     })
-  })
-
-  onUnmounted(() => {
-    unlistenStatus?.()
-    unlistenAlert?.()
   })
 
   return {

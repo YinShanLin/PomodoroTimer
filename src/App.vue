@@ -128,9 +128,9 @@ const handleSave = async (newSettings: typeof settings.value) => {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #1E2A1F;
-  color: #F8F4EC;
+  font-family: var(--font-body);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   overflow: hidden;
   user-select: none;
   -webkit-font-smoothing: antialiased;
@@ -150,9 +150,12 @@ body {
   --bg-tertiary: #354A38;
   --surface: rgba(248, 244, 236, 0.05);
   --surface-hover: rgba(248, 244, 236, 0.08);
+  --surface-active: rgba(248, 244, 236, 0.1);
+  --surface-subtle: rgba(248, 244, 236, 0.03);
   --text-primary: #F8F4EC;
   --text-secondary: rgba(248, 244, 236, 0.7);
   --text-tertiary: rgba(248, 244, 236, 0.4);
+  --text-muted: rgba(248, 244, 236, 0.5);
   --accent-red: #E74C3C;
   --accent-red-dark: #C0392B;
   --accent-orange: #F39C12;
@@ -175,7 +178,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: linear-gradient(180deg, #1E2A1F 0%, #162017 100%);
+  background: linear-gradient(180deg, var(--bg-primary) 0%, #162017 100%);
 }
 
 .header {
@@ -287,14 +290,14 @@ body {
 
 .state-badge.work {
   background: rgba(231, 76, 60, 0.15);
-  color: #E74C3C;
+  color: var(--accent-red);
   border: 1px solid rgba(231, 76, 60, 0.2);
 }
 
 .state-badge.shortbreak,
 .state-badge.longbreak {
   background: rgba(39, 174, 96, 0.15);
-  color: #27AE60;
+  color: var(--accent-green);
   border: 1px solid rgba(39, 174, 96, 0.2);
 }
 

@@ -128,7 +128,7 @@ const getStrokeColor = () => {
 }
 
 .ring-bg {
-  stroke: rgba(248, 244, 236, 0.06);
+  stroke: var(--surface);
 }
 
 .ring-progress {

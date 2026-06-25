@@ -58,6 +58,12 @@ impl Default for TimerSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodayStats {
+    pub count: usize,
+    pub total_minutes: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PomodoroRecord {
     pub start_time: String,
     pub duration_secs: u32,
@@ -86,7 +92,7 @@ pub struct AppState {
     pub cancel_tx: Mutex<Option<mpsc::Sender<()>>>,
     pub pause_tx: Mutex<Option<watch::Sender<bool>>>,
     pub records: Mutex<Vec<PomodoroRecord>>,
-    pub data_path: Mutex<String>,
+    pub data_path: String,
 }
 
 impl AppState {
@@ -95,9 +101,8 @@ impl AppState {
             settings: self.settings.lock().unwrap().clone(),
             records: self.records.lock().unwrap().clone(),
         };
-        let path = self.data_path.lock().unwrap();
         if let Ok(json) = serde_json::to_string_pretty(&data) {
-            let _ = fs::write(&*path, json);
+            let _ = fs::write(&self.data_path, json);
         }
     }
 
@@ -111,6 +116,110 @@ impl AppState {
 
 fn emit_status(app: &AppHandle, status: &TimerStatus) {
     app.emit("timer-status", status.clone()).ok();
+}
+
+fn prepare_channels(state: &AppState) -> (mpsc::Receiver<()>, watch::Receiver<bool>) {
+    let tx = state.cancel_tx.lock().unwrap().take();
+    if let Some(tx) = tx {
+        let _ = tx.try_send(());
+    }
+    *state.pause_tx.lock().unwrap() = None;
+
+    let (cancel_tx, cancel_rx) = mpsc::channel::<()>(1);
+    let (pause_tx, pause_rx) = watch::channel(false);
+    *state.cancel_tx.lock().unwrap() = Some(cancel_tx);
+    *state.pause_tx.lock().unwrap() = Some(pause_tx);
+
+    (cancel_rx, pause_rx)
+}
+
+fn spawn_countdown(
+    app: AppHandle,
+    duration: u32,
+    state_value: TimerState,
+    session: u32,
+    sessions_before_long: u32,
+    title_prefix: String,
+    alert_label: String,
+    next_action: NextAction,
+    on_complete: Option<Box<dyn FnOnce(AppHandle) + Send>>,
+    cancel_rx: mpsc::Receiver<()>,
+    pause_rx: watch::Receiver<bool>,
+) {
+    tokio::spawn(async move {
+        let mut remaining = duration;
+        let mut paused_rx = pause_rx;
+        let mut cancel_rx = cancel_rx;
+
+        loop {
+            let is_paused = *paused_rx.borrow();
+
+            if is_paused {
+                tokio::select! {
+                    result = paused_rx.changed() => {
+                        if result.is_err() { break; }
+                    }
+                    _ = cancel_rx.recv() => { break; }
+                }
+            } else {
+                tokio::select! {
+                    _ = sleep(Duration::from_secs(1)) => {
+                        if remaining > 0 {
+                            remaining -= 1;
+                            let mins = remaining / 60;
+                            let secs = remaining % 60;
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.set_title(&format!("{} {:02}:{:02}", title_prefix, mins, secs));
+                            }
+                            emit_status(&app, &TimerStatus {
+                                state: state_value.clone(),
+                                remaining_secs: remaining,
+                                total_secs: duration,
+                                session,
+                                sessions_until_long: sessions_before_long,
+                                is_paused: false,
+                                next_action: NextAction::None,
+                            });
+                        } else {
+                            if let Some(cb) = on_complete {
+                                cb(app.clone());
+                            }
+                            app.emit("timer-alert", serde_json::json!({"label": alert_label})).ok();
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.set_title("番茄钟");
+                            }
+                            emit_status(&app, &TimerStatus {
+                                state: TimerState::Idle,
+                                remaining_secs: 0,
+                                total_secs: duration,
+                                session: 0,
+                                sessions_until_long: sessions_before_long,
+                                is_paused: false,
+                                next_action,
+                            });
+                            break;
+                        }
+                    }
+                    result = paused_rx.changed() => {
+                        if result.is_err() { break; }
+                        let new_paused = *paused_rx.borrow();
+                        if new_paused {
+                            emit_status(&app, &TimerStatus {
+                                state: state_value.clone(),
+                                remaining_secs: remaining,
+                                total_secs: duration,
+                                session,
+                                sessions_until_long: sessions_before_long,
+                                is_paused: true,
+                                next_action: NextAction::None,
+                            });
+                        }
+                    }
+                    _ = cancel_rx.recv() => { break; }
+                }
+            }
+        }
+    });
 }
 
 #[tauri::command]
@@ -135,41 +244,25 @@ fn get_records(state: State<'_, AppState>) -> Vec<PomodoroRecord> {
 }
 
 #[tauri::command]
-fn get_today_stats(state: State<'_, AppState>) -> serde_json::Value {
+fn get_today_stats(state: State<'_, AppState>) -> TodayStats {
     let records = state.records.lock().unwrap();
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let today_records: Vec<&PomodoroRecord> = records
         .iter()
         .filter(|r| r.start_time.starts_with(&today) && r.state == "Work" && r.completed)
         .collect();
-    serde_json::json!({
-        "count": today_records.len(),
-        "total_minutes": today_records.iter().map(|r| r.duration_secs / 60).sum::<u32>(),
-    })
+    TodayStats {
+        count: today_records.len(),
+        total_minutes: today_records.iter().map(|r| r.duration_secs / 60).sum(),
+    }
 }
 
 #[tauri::command]
 async fn start_timer(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    // Cancel any existing timer first
-    {
-        let tx = state.cancel_tx.lock().unwrap().take();
-        if let Some(tx) = tx {
-            let _ = tx.try_send(());
-        }
-        *state.pause_tx.lock().unwrap() = None;
-    }
-
-    let (cancel_tx, mut cancel_rx) = mpsc::channel::<()>(1);
-    let (pause_tx, pause_rx) = watch::channel(false);
-    {
-        *state.cancel_tx.lock().unwrap() = Some(cancel_tx);
-        *state.pause_tx.lock().unwrap() = Some(pause_tx);
-    }
+    let (cancel_rx, pause_rx) = prepare_channels(&state);
 
     let settings = state.settings.lock().unwrap().clone();
-
-    let session;
-    {
+    let session = {
         let mut status = state.status.lock().unwrap();
         status.state = TimerState::Work;
         status.remaining_secs = settings.work_duration;
@@ -177,126 +270,51 @@ async fn start_timer(app: AppHandle, state: State<'_, AppState>) -> Result<(), S
         status.session += 1;
         status.is_paused = false;
         status.next_action = NextAction::None;
-        session = status.session;
-    }
+        status.session
+    };
 
-    {
-        let status = state.status.lock().unwrap();
-        state.records.lock().unwrap().push(PomodoroRecord {
-            start_time: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-            duration_secs: status.total_secs,
-            state: "Work".to_string(),
-            completed: false,
-        });
-    }
+    state.records.lock().unwrap().push(PomodoroRecord {
+        start_time: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        duration_secs: settings.work_duration,
+        state: "Work".to_string(),
+        completed: false,
+    });
 
     emit_status(&app, &state.status.lock().unwrap());
 
     let app2 = app.clone();
-
-    tokio::spawn(async move {
-        let mut remaining = settings.work_duration;
-        let mut paused_rx = pause_rx;
-
-        loop {
-            let is_paused = *paused_rx.borrow();
-
-            if is_paused {
-                tokio::select! {
-                    result = paused_rx.changed() => {
-                        if result.is_err() { break; }
-                    }
-                    _ = cancel_rx.recv() => { break; }
-                }
-            } else {
-                tokio::select! {
-                    _ = sleep(Duration::from_secs(1)) => {
-                        if remaining > 0 {
-                            remaining -= 1;
-                            let mins = remaining / 60;
-                            let secs = remaining % 60;
-                            if let Some(w) = app2.get_webview_window("main") {
-                                let _ = w.set_title(&format!("专注中 {:02}:{:02}", mins, secs));
-                            }
-                            emit_status(&app2, &TimerStatus {
-                                state: TimerState::Work,
-                                remaining_secs: remaining,
-                                total_secs: settings.work_duration,
-                                session,
-                                sessions_until_long: settings.sessions_before_long,
-                                is_paused: false,
-                                next_action: NextAction::None,
-                            });
-                        } else {
-                            // Mark the work record as completed via AppHandle
-                            {
-                                let s = app2.state::<AppState>();
-                                let mut records = s.records.lock().unwrap();
-                                if let Some(last) = records.last_mut() {
-                                    if last.state == "Work" && !last.completed {
-                                        last.completed = true;
-                                    }
-                                }
-                                drop(records);
-                                s.save_data();
-                            }
-                            app2.emit("timer-alert", serde_json::json!({"label": "专注结束"})).ok();
-                            if let Some(w) = app2.get_webview_window("main") {
-                                let _ = w.set_title("番茄钟");
-                            }
-                            emit_status(&app2, &TimerStatus {
-                                state: TimerState::Idle,
-                                remaining_secs: 0,
-                                total_secs: settings.work_duration,
-                                session,
-                                sessions_until_long: settings.sessions_before_long,
-                                is_paused: false,
-                                next_action: NextAction::Break,
-                            });
-                            break;
-                        }
-                    }
-                    result = paused_rx.changed() => {
-                        if result.is_err() { break; }
-                        let new_paused = *paused_rx.borrow();
-                        if new_paused {
-                            emit_status(&app2, &TimerStatus {
-                                state: TimerState::Work,
-                                remaining_secs: remaining,
-                                total_secs: settings.work_duration,
-                                session,
-                                sessions_until_long: settings.sessions_before_long,
-                                is_paused: true,
-                                next_action: NextAction::None,
-                            });
-                        }
-                    }
-                    _ = cancel_rx.recv() => { break; }
-                }
+    let on_complete: Box<dyn FnOnce(AppHandle) + Send> = Box::new(move |h| {
+        let s = h.state::<AppState>();
+        let mut records = s.records.lock().unwrap();
+        if let Some(last) = records.last_mut() {
+            if last.state == "Work" && !last.completed {
+                last.completed = true;
             }
         }
+        drop(records);
+        s.save_data();
     });
+
+    spawn_countdown(
+        app2,
+        settings.work_duration,
+        TimerState::Work,
+        session,
+        settings.sessions_before_long,
+        "专注中".into(),
+        "专注结束".into(),
+        NextAction::Break,
+        Some(on_complete),
+        cancel_rx,
+        pause_rx,
+    );
 
     Ok(())
 }
 
 #[tauri::command]
 async fn start_break(app: AppHandle, state: State<'_, AppState>, is_long: bool) -> Result<(), String> {
-    // Cancel any existing timer first
-    {
-        let tx = state.cancel_tx.lock().unwrap().take();
-        if let Some(tx) = tx {
-            let _ = tx.try_send(());
-        }
-        *state.pause_tx.lock().unwrap() = None;
-    }
-
-    let (cancel_tx, mut cancel_rx) = mpsc::channel::<()>(1);
-    let (pause_tx, pause_rx) = watch::channel(false);
-    {
-        *state.cancel_tx.lock().unwrap() = Some(cancel_tx);
-        *state.pause_tx.lock().unwrap() = Some(pause_tx);
-    }
+    let (cancel_rx, pause_rx) = prepare_channels(&state);
 
     let settings = state.settings.lock().unwrap().clone();
     let break_duration = if is_long { settings.long_break } else { settings.short_break };
@@ -314,78 +332,19 @@ async fn start_break(app: AppHandle, state: State<'_, AppState>, is_long: bool) 
 
     emit_status(&app, &state.status.lock().unwrap());
 
-    let app2 = app.clone();
-
-    tokio::spawn(async move {
-        let mut remaining = break_duration;
-        let mut paused_rx = pause_rx;
-
-        loop {
-            let is_paused = *paused_rx.borrow();
-
-            if is_paused {
-                tokio::select! {
-                    result = paused_rx.changed() => {
-                        if result.is_err() { break; }
-                    }
-                    _ = cancel_rx.recv() => { break; }
-                }
-            } else {
-                tokio::select! {
-                    _ = sleep(Duration::from_secs(1)) => {
-                        if remaining > 0 {
-                            remaining -= 1;
-                            let mins = remaining / 60;
-                            let secs = remaining % 60;
-                            if let Some(w) = app2.get_webview_window("main") {
-                                let _ = w.set_title(&format!("{} {:02}:{:02}", break_label, mins, secs));
-                            }
-                            emit_status(&app2, &TimerStatus {
-                                state: state_value.clone(),
-                                remaining_secs: remaining,
-                                total_secs: break_duration,
-                                session: 0,
-                                sessions_until_long: settings.sessions_before_long,
-                                is_paused: false,
-                                next_action: NextAction::None,
-                            });
-                        } else {
-                            app2.emit("timer-alert", serde_json::json!({"label": "休息结束"})).ok();
-                            if let Some(w) = app2.get_webview_window("main") {
-                                let _ = w.set_title("番茄钟");
-                            }
-                            emit_status(&app2, &TimerStatus {
-                                state: TimerState::Idle,
-                                remaining_secs: 0,
-                                total_secs: break_duration,
-                                session: 0,
-                                sessions_until_long: settings.sessions_before_long,
-                                is_paused: false,
-                                next_action: NextAction::Work,
-                            });
-                            break;
-                        }
-                    }
-                    result = paused_rx.changed() => {
-                        if result.is_err() { break; }
-                        let new_paused = *paused_rx.borrow();
-                        if new_paused {
-                            emit_status(&app2, &TimerStatus {
-                                state: state_value.clone(),
-                                remaining_secs: remaining,
-                                total_secs: break_duration,
-                                session: 0,
-                                sessions_until_long: settings.sessions_before_long,
-                                is_paused: true,
-                                next_action: NextAction::None,
-                            });
-                        }
-                    }
-                    _ = cancel_rx.recv() => { break; }
-                }
-            }
-        }
-    });
+    spawn_countdown(
+        app,
+        break_duration,
+        state_value,
+        0,
+        settings.sessions_before_long,
+        break_label.into(),
+        "休息结束".into(),
+        NextAction::Work,
+        None,
+        cancel_rx,
+        pause_rx,
+    );
 
     Ok(())
 }
@@ -489,7 +448,7 @@ pub fn run() {
         cancel_tx: Mutex::new(None),
         pause_tx: Mutex::new(None),
         records: Mutex::new(app_data.records),
-        data_path: Mutex::new(data_path.to_str().unwrap_or("pomodoro-data.json").to_string()),
+        data_path: data_path.to_str().unwrap_or("pomodoro-data.json").to_string(),
     };
 
     tauri::Builder::default()
