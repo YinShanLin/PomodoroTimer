@@ -1,0 +1,2 @@
+[permissions]
+allow = ["Bash(cd /Users/ysl/AI/PomodoroTimer && git log --oneline -5)", "Bash(cd /Users/ysl/AI/PomodoroTimer && git diff HEAD -- src-tauri/src/main.rs | wc -l && echo \"---\" && git log --oneline --all -- src-tauri/src/main.rs)", "Bash(cd /Users/ysl/AI/PomodoroTimer && git diff HEAD -- src-tauri/src/main.rs && echo \"---NO DIFF---\" && git status src-tauri/src/main.rs)", "Bash(cd /Users/ysl/AI/PomodoroTimer && git status src/composables/useTimer.ts src-tauri/src/main.rs)"]
